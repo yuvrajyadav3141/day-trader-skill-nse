@@ -25,38 +25,31 @@ Free, MIT, no signup. The tools are plain Python (3.8 or newer, nothing to pip i
 
 You need Python 3.8 or newer (check with `python3 --version`) and [Claude Code](https://claude.com/claude-code) or the Claude desktop app. Nothing to pip install. Tested on macOS only; Linux should work, Windows is untested.
 
-**1. Get the code**
+**1. Install the skills, either way**
 
-```bash
-git clone -b nse-port https://github.com/yuvrajyadav3141/day-trader-skill-nse.git
-cd day-trader-skill-nse
+*A. As a plugin, straight from GitHub (no clone):* in Claude Code run
+
+```
+/plugin marketplace add yuvrajyadav3141/day-trader-skill-nse
+/plugin install day-trader-skills-nse@day-trader-skills-nse
 ```
 
-(Drop `-b nse-port` once the port is merged to `main`.)
+In the desktop app `/plugin` opens a window instead: add `yuvrajyadav3141/day-trader-skill-nse` there as a marketplace, then install `day-trader-skills-nse`. Plugin skills are namespaced, e.g. `/day-trader-skills-nse:trader-scanner`.
 
-**2. Install the skills, either way**
-
-*A. Copy the folders (simplest; gives plain names like `/trader-scanner`):*
+*B. Copy the folders (gives plain names like `/trader-scanner`):*
 
 ```bash
+git clone https://github.com/yuvrajyadav3141/day-trader-skill-nse.git
+cd day-trader-skill-nse
 mkdir -p ~/.claude/skills
 cp -R trader-* ~/.claude/skills/
 ```
 
 Copy `trader-data` too: the `trader-*` pattern includes it, and the tools import it. Start a new Claude session afterwards. To update later, `git pull` and run the same `cp -R` again.
 
-*B. As a plugin:* in Claude Code, add the cloned folder as a marketplace and install from it:
-
-```
-/plugin marketplace add /full/path/to/day-trader-skill-nse
-/plugin install day-trader-skills-nse@day-trader-skills-nse
-```
-
-In the desktop app `/plugin` opens a window instead: add the folder path there. Plugin skills are namespaced, e.g. `/day-trader-skills-nse:trader-scanner`.
-
 *No Claude Code?* Paste any one `SKILL.md` at the top of a chat and it works as a mode. You lose the Python tools, but the method stays.
 
-**3. Set your rules**
+**2. Set your rules**
 
 In the folder where you will trade (any folder; the tools write a `trader/` folder there):
 
@@ -67,7 +60,7 @@ cp ~/.claude/skills/trader-budget/config.example.json trader/config.json
 
 Edit `trader/config.json`: `budget`, `max_loss_per_trade_inr` and `max_daily_loss_inr` first. The example uses 1,00,000 rupees, 500 and 1,500. Everything else (entry window 09:30 to 15:00, flat by 15:10, `"product": "MIS"`) can stay.
 
-**4. Run it**
+**3. Run it**
 
 Ask Claude, or run the tools directly:
 
@@ -79,7 +72,7 @@ python3 ~/.claude/skills/trader-scanner/scan.py orb          # after 9:35 AM IST
 
 Then the order of the pack is: scanner, news, entry, exit, timemachine, budget, risk, broker. Each step reads what the one before wrote into `trader/`.
 
-**5. Optional: Zerodha Kite Connect for prices**
+**4. Optional: Zerodha Kite Connect for prices**
 
 The default is free Yahoo data and needs no account. If you have a Kite Connect plan with historical data:
 
