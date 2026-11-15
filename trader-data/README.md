@@ -1,7 +1,18 @@
 # trader-data
 
-Not a skill. A shared folder the other skills import (`kitefeed.py`), so copy it with the rest
+Not a skill. A shared folder the other skills import, so copy it with the rest
 (`cp -r trader-* ~/.claude/skills/` takes it along).
+
+## What is in it
+
+| file | what |
+| --- | --- |
+| `bhav.py` | downloads and caches NSE's official daily price file for every stock (used by trader-swing and trader-gems) |
+| `charges.py` | Zerodha's NSE equity charges for one round trip, intraday or delivery (rates read 2026-11-15) |
+| `kitefeed.py` | optional Kite Connect price source for the Python tools, below |
+
+The Kite and NSE *connectors* in a Claude session are separate from `kitefeed.py`: Claude calls those itself
+(see `trader/SKILL.md`); the Python tools cannot.
 
 ## Default: Yahoo Finance, free
 

@@ -1,14 +1,14 @@
 {
-  "budget": 100000,
+  "budget": 25000,
   "cash_buffer_pct": 10,
   "max_position_pct": 75,
-  "max_order_inr": 75000,
+  "max_order_inr": 18750,
   "min_order_inr": 500,
-  "max_loss_per_trade_inr": 500,
-  "max_daily_loss_inr": 1500,
-  "max_trades_per_day": 3,
+  "max_loss_per_trade_inr": 250,
+  "max_daily_loss_inr": 500,
+  "max_trades_per_day": 2,
   "max_orders_per_day": 10,
-  "min_reward_risk": 1.0,
+  "min_reward_risk": 1.5,
   "require_stop": true,
   "no_entries_before": "09:30",
   "no_entries_after": "15:00",
@@ -18,5 +18,9 @@
   "blocked": [],
   "allow_options": false,
   "allow_margin": false,
-  "allow_short": false
+  "allow_short": false,
+  "swing_capital": 25000,
+  "swing_max_loss_per_trade_inr": 250,
+  "swing_max_position_pct": 40,
+  "swing_max_open_positions": 3
 }

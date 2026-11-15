@@ -1,7 +1,7 @@
 {
   "name": "day-trader-skills-nse",
-  "description": "11 Claude skills for day trading on the NSE: scan the market for setups, track quarterly results, time every entry and exit, and replay every outcome before you risk a rupee. You place the orders.",
-  "version": "0.1.0",
+  "description": "15 Claude skills for trading on the NSE: intraday and swing scans with honest backtests, a small-company fundamentals screen, results research, risk limits, charges and a journal. You place the orders.",
+  "version": "0.2.0",
   "author": {
     "name": "Ported from Jake Schincariol's day-trader-skill",
     "url": "https://github.com/jakeschincariol/day-trader-skill"

@@ -153,6 +153,28 @@ def load_text(name, url, offline):
     return fetch(url)
 
 
+def save_filing(url, folder=os.path.join("trader", "filings")):
+    """Download one NSE filing (PDF or XBRL) so Claude can read it. Only NSE's own archive hosts."""
+    host = urllib.parse.urlparse(url).netloc.lower()
+    if host not in ("nsearchives.nseindia.com", "archives.nseindia.com"):
+        raise NewsError("--save only downloads filings from nsearchives.nseindia.com, not %s" % (host or url))
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read()
+    except urllib.error.HTTPError as e:
+        code = e.code
+        e.close()
+        raise NewsError("NSE answered HTTP %d for %s" % (code, url))
+    except (urllib.error.URLError, OSError) as e:
+        raise NewsError("could not download %s: %s" % (url, getattr(e, "reason", e)))
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, os.path.basename(urllib.parse.urlparse(url).path) or "filing")
+    with open(path, "wb") as fh:
+        fh.write(data)
+    return path
+
+
 # ---------------------------------------------------------------- parsing
 
 def norm_name(name):
@@ -407,12 +429,17 @@ def main(argv=None):
     ap.add_argument("--offline", metavar="DIR", help="read Board_Meetings.xml, Financial_Results.xml, "
                     "Online_announcements.xml and EQUITY_L.csv from DIR")
     ap.add_argument("--now", help='pretend it is this IST time, e.g. "2026-11-06 16:00"')
+    ap.add_argument("--save", metavar="URL", help="download one filing (an nsearchives.nseindia.com link) into "
+                    "trader/filings/ so it can be read, then stop")
     ap.add_argument("--watchlist", default="trader/watchlist.json")
     ap.add_argument("--plan", default="trader/plan.json")
     ap.add_argument("--portfolio", default="trader/portfolio.json")
     ap.add_argument("--state", default="trader/state/news.json")
     a = ap.parse_args(argv)
     try:
+        if a.save:
+            print("Saved %s" % save_filing(a.save))
+            return 0
         now = parse_now(a.now)
         symbols, src = watched(a)
         if not symbols:

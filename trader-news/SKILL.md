@@ -77,6 +77,29 @@ python3 "${CLAUDE_SKILL_DIR}/news.py" --offline DIR --now "2026-11-06 16:00"   #
   say what the stock will do next, and never call a result good or bad: the market decides that,
   and the numbers need the filing's context.
 
+## Results research (when a company has reported)
+
+The feeds give the filing, not the numbers. Do the reading:
+
+1. **Get the filing.** `news.py --save <link>` downloads it to `trader/filings/`. Read the PDF: the
+   covering letter gives the board meeting's start and end time; the results table is usually a few
+   pages in (after the auditor's review report). Tested on Siemens' 2026-11-06 filing: readable, 5.9 MB.
+2. **Pull the table.** A results table carries the quarter, the previous quarter AND the same quarter a
+   year ago, so growth comes straight from the filing (Yahoo often lacks the year-ago quarter). Report
+   revenue from operations, total expenses, profit before tax, tax, net profit and EPS, each with
+   quarter-on-quarter and year-on-year change. Say whether the figures are standalone or consolidated.
+3. **Look for what flatters or hides.** Other income as a share of profit; exceptional items; a tax
+   credit; a change in accounting policy; segment results that moved; the notes; any auditor
+   qualification or emphasis of matter. Say plainly what you found and what you could not read.
+4. **Set it against history.** `/trader-analyst SYMBOL` for the last quarters and margins.
+5. **The market's reaction.** Price move since the filing time and volume against its average: the
+   Kite connector (`market`, `mode=quote` or `historical`) or the NSE connector (`get_volume_analysis`)
+   if connected, else `alerts.py quote`. A result filed at 1 PM moves the stock in that session;
+   one filed after 3:30 PM moves the next open.
+6. **Say what it means for the trade, not for the stock.** Results inside an intraday trade are a gap
+   risk a stop does not cover. A swing position held through a result is a bet on the result.
+   Never call a result good or bad for the price: plenty of good results fall and bad ones rise.
+
 ## Steps
 
 1. Run it for the watchlist (or the tickers the user names). Tell the user the counts: how many stocks,

@@ -8,9 +8,9 @@ from _load import ROOT
 # v2, the day-trading pack: the eleven folders the reel's repo card shows
 SKILLS = ["trader-scanner", "trader-news", "trader-entry", "trader-exit", "trader-timemachine",
           "trader-risk", "trader-budget", "trader-broker", "trader-alerts", "trader-analyst",
-          "trader-deals"]
-ABOUT = ("11 Claude skills for day trading on the NSE: scan the market for setups, track quarterly results, "
-         "time every entry and exit, and replay every outcome before you risk a rupee. You place the orders.")
+          "trader-deals", "trader", "trader-swing", "trader-gems", "trader-journal"]
+ABOUT = ("15 Claude skills for trading on the NSE: intraday and swing scans with honest backtests, a small-company "
+         "fundamentals screen, results research, risk limits, charges and a journal. You place the orders.")
 # skills on the way to an order carry the safety block
 ORDER_PATH = ["trader-scanner", "trader-entry", "trader-exit", "trader-timemachine", "trader-budget",
               "trader-deals", "trader-risk", "trader-broker", "trader-alerts"]

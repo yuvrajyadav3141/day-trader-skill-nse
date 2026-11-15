@@ -129,6 +129,13 @@ The budget counts the full price of the shares against your cash. Zerodha's MIS
 margin would let you hold the same shares on less money; this tool does not use
 it, so its sizes are conservative on purpose.
 
+## Charges, and a small account
+
+The size line is followed by the result after Zerodha's charges at the target and at the stop, and the
+reward:risk after charges. With the shipped example config (Rs 25,000 budget, Rs 250 max loss, minimum
+reward:risk 1.5) a round trip of about Rs 18,700 costs about Rs 20, so a 2R plan is about 1.7R after
+charges and a 1R plan falls under 1: the tool says so. The example above was run with a larger config.
+
 ## Weights mode (kept from v1)
 
 `--weights RELIANCE=60,TCS=40` or `--targets FILE` (`targets.example.json`

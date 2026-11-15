@@ -2,6 +2,7 @@
 quarterly numbers and bulk deals. Offline: fixtures are saved NSE feeds and a made-up session
 (tests/_synth.py). Run: python3 -m unittest discover -s tests -v"""
 
+import argparse
 import datetime
 import gzip
 import io
@@ -137,42 +138,43 @@ class Chain(unittest.TestCase):
         self.assertIn("TRIGGERED 9:40 AM at ₹101.45", out)
         self.assertIn("range high ₹101.20", out)
         plan = self.step("trader-exit", "exit.py", ["plan", "--from", "trader/entry.json", "--stop", "or-mid",
-                                                   "--target", "1R", "--now", self.now, "--offline", self.off, "--write"])
+                                                   "--target", "2R", "--now", self.now, "--offline", self.off, "--write"])
         self.assertIn("Stop          ₹100.45", plan)
-        self.assertIn("Target        ₹102.45", plan)
+        self.assertIn("Target        ₹103.45", plan)
         self.assertIn("Flat by       15:10 IST", plan)
         with open(os.path.join(self.cwd, "trader", "plan.json")) as fh:
             self.assertEqual(json.load(fh)["symbol"], "RELIANCE")       # the NSE symbol, not RELIANCE.NS
         sized = self.step("trader-budget", "size.py", ["--now", self.now, "--write"])
-        self.assertIn("Size: 500 shares of RELIANCE", sized)
+        self.assertIn("Size: 184 shares of RELIANCE", sized)
+        self.assertIn("After Zerodha charges", sized)
         self.assertIn("bound by", sized.lower() + "bound by")
         with open(os.path.join(self.cwd, "trader", "orders.json")) as fh:
             order = json.load(fh)["orders"][0]
-        self.assertEqual((order["symbol"], order["side"], order["qty"]), ("RELIANCE", "buy", "500"))
+        self.assertEqual((order["symbol"], order["side"], order["qty"]), ("RELIANCE", "buy", "184"))
         self.assertEqual(order["stop_loss_stop_price"], "100.45")
-        self.assertEqual(order["take_profit_limit_price"], "102.45")
+        self.assertEqual(order["take_profit_limit_price"], "103.45")
         risk = self.step("trader-risk", "check.py", ["--now", self.now])
-        self.assertIn("PASS  #1 buy RELIANCE 500 shares", risk)
-        self.assertIn("max loss ₹500 (limit ₹500)", risk)
+        self.assertIn("PASS  #1 buy RELIANCE 184 shares", risk)
+        self.assertIn("max loss ₹184 (limit ₹250)", risk)
         shown = self.step("trader-broker", "ticket.py", ["show", "--now", self.now])
         self.assertIn("READY", shown)
         self.assertIn("exchange          NSE", shown)
         self.assertIn("product           MIS", shown)
         self.assertIn("order_type        SL-M", shown)
         self.assertIn("trigger_price     100.45", shown)
-        self.assertIn("price             102.45", shown)
+        self.assertIn("price             103.45", shown)
         self.assertNotIn("Alpaca", shown)
         j = json.loads(self.step("trader-broker", "ticket.py", ["show", "--index", "1", "--json", "--now", self.now]))
         self.assertEqual(j["kite_form"]["tradingsymbol"], "RELIANCE")
         self.assertEqual(len(j["exit_orders"]), 2)
         self.step("trader-broker", "ticket.py", ["placed", "--index", "1", "--broker-id", "2611060001",
-                                                "--filled-qty", "500", "--filled-price", "101.45", "--now", self.now])
+                                                "--filled-qty", "184", "--filled-price", "101.45", "--now", self.now])
         again = self.step("trader-broker", "ticket.py", ["show", "--now", self.now], want=1)
         self.assertIn("DONE: placed", again)
         with open(os.path.join(self.cwd, "trader", "portfolio.json")) as fh:
             pf = json.load(fh)
-        self.assertEqual(pf["positions"][0]["shares"], 500)
-        self.assertAlmostEqual(pf["cash"], 100000 - 500 * 101.45)
+        self.assertEqual(pf["positions"][0]["shares"], 184)
+        self.assertAlmostEqual(pf["cash"], 25000 - 184 * 101.45)
         flat = self.step("trader-broker", "ticket.py", ["flatten", "--symbol", "RELIANCE", "--now", "2026-11-06 15:05"])
         self.assertIn("flat by 15:10 IST", flat)
         self.assertIn("Kite", flat)
@@ -398,6 +400,164 @@ class Engines(unittest.TestCase):
         self.assertEqual(rc, 0, out + err)
         self.assertIn("9:40 AM  RELIANCE", out)
         self.assertIn("range 99.70 to 101.20", out)
+
+
+
+def _bars(n, f):
+    """n daily bars from f(i) -> (open, high, low, close, volume)."""
+    out, prev = [], None
+    for i in range(n):
+        o, h, l, c, v = f(i)
+        out.append({"o": o, "h": h, "l": l, "c": c, "prev": prev if prev else o, "v": v,
+                    "turnover_lacs": c * v / 1e5, "deliv_pct": 40.0})
+        prev = c
+    return out
+
+
+class Swing(unittest.TestCase):
+    def setUp(self):
+        self.sw = load("trader-swing", "swing")
+        self.flat = _bars(80, lambda i: (100.0, 101.0, 99.0, 100.0, 300000))
+
+    def test_volume_shocker_fires_only_on_the_spike(self):
+        bars = self.flat[:79] + _bars(1, lambda i: (100.0, 106.0, 99.5, 105.5, 1500000))
+        s = self.sw.series(bars)
+        self.assertIn("volume_shocker", self.sw.fired(bars, s, 79))
+        self.assertNotIn("volume_shocker", self.sw.fired(bars, s, 78))
+
+    def test_gap_up_and_ema_cross(self):
+        bars = self.flat[:79] + _bars(1, lambda i: (104.0, 106.0, 103.5, 105.0, 300000))
+        self.assertIn("gap_up", self.sw.fired(bars, self.sw.series(bars), 79))
+        down = _bars(70, lambda i: (100 - i * 0.2,) * 2 + (99 - i * 0.2, 100 - i * 0.2, 300000))
+        up = _bars(12, lambda i: (86 + i * 2.0, 87 + i * 2.0, 85 + i * 2.0, 86 + i * 2.0, 300000))
+        bars = down + up
+        s = self.sw.series(bars)
+        self.assertEqual(sum("ema_9_21" in self.sw.fired(bars, s, i) for i in range(60, len(bars))), 1)
+
+    def test_one_trade_stop_target_gap_and_time_exit(self):
+        mk = lambda rows: [{"o": o, "h": h, "l": l, "c": c} for o, h, l, c in rows]
+        sig = (100, 100, 100, 100)
+        self.assertEqual(self.sw.one_trade(mk([sig, (100, 101, 97, 98)]), 0, 1.0, 2, 2, 10)[0], -1.0)        # stop at 98
+        self.assertEqual(self.sw.one_trade(mk([sig, (100, 105, 99, 104)]), 0, 1.0, 2, 2, 10)[0], 2)         # target at 104
+        self.assertEqual(self.sw.one_trade(mk([sig, (100, 105, 97, 104)]), 0, 1.0, 2, 2, 10)[0], -1.0)      # both: the stop
+        r = self.sw.one_trade(mk([sig, (100, 101, 99, 100), (95, 96, 94, 95)]), 0, 1.0, 2, 2, 10)[0]
+        self.assertEqual(r, -2.5)                                                                           # gapped through
+        self.assertEqual(self.sw.one_trade(mk([sig, (100, 101, 99, 101)]), 0, 1.0, 2, 2, 10)[0], 0.5)       # time exit
+
+    def test_verdict_calls_out_an_unstable_rule(self):
+        net = {"trades": 500, "avg_r": 0.1}
+        v = self.sw.verdict(net, {"avg_r": 0.2}, -0.01, {"first_half_r": 0.3, "second_half_r": -0.08, "signal_days": 90})
+        self.assertTrue(v.startswith("NOT STABLE"))
+        self.assertIn("added nothing", self.sw.verdict(net, {"avg_r": 0.0}, -0.01))
+
+    def test_plan_sizes_to_the_max_loss_and_rounds_to_the_tick(self):
+        p = self.sw.plan("XYZ", self.flat, dict(self.sw.DEFAULTS), 2.0, 2.0)
+        self.assertEqual(p["stop"], 96.0)                       # 100 - 2 x ATR of 2.0
+        self.assertEqual(p["qty"], 62)                          # 250 / 4.0 risk a share
+        self.assertEqual(p["bound_by"], "max loss")
+        self.assertLess(p["max_loss"], 280)
+        self.assertEqual(p["product"], "CNC")
+
+
+class Charges(unittest.TestCase):
+    def test_intraday_and_delivery_round_trips(self):
+        ch = load("trader-data", "charges")
+        c = ch.round_trip(1311.90, 1323.00, 15)
+        self.assertEqual(c["brokerage"], 11.86)                 # 0.03 % each side, under the Rs 20 cap
+        self.assertEqual(c["stt"], 5.0)
+        self.assertEqual(c["total"], 21.06)
+        d = ch.round_trip(184.0, 200.0, 20, delivery=True)
+        self.assertEqual(d["brokerage"], 0.0)
+        self.assertEqual(d["dp"], 15.34)
+        self.assertEqual(d["stt"], 8.0)                         # 0.1 % of 7,680 turnover, rounded
+
+
+class Bhav(unittest.TestCase):
+    TEXT = ("SYMBOL, SERIES, DATE1, PREV_CLOSE, OPEN_PRICE, HIGH_PRICE, LOW_PRICE, LAST_PRICE, CLOSE_PRICE, AVG_PRICE, "
+            "TTL_TRD_QNTY, TURNOVER_LACS, NO_OF_TRADES, DELIV_QTY, DELIV_PER\n"
+            "RELIANCE, EQ, 13-Nov-2026, 1339.70, 1336.60, 1350.70, 1324.00, 1339.70, 1339.70, 1338.10, 13756247, 184072.11, 207960, 6440327, 46.82\n"
+            "21STCENMGM, BE, 13-Nov-2026, 55.04, 55.04, 55.90, 54.00, 54.10, 54.10, 54.55, 6389, 3.49, 57, -, -\n")
+
+    def test_parse_keeps_eq_and_reads_the_date_inside_the_file(self):
+        bhav = load("trader-data", "bhav")
+        day, rows = bhav.parse(self.TEXT)
+        self.assertEqual(day, D(2026, 11, 13))
+        self.assertEqual(list(rows), ["RELIANCE"])
+        self.assertEqual(rows["RELIANCE"]["deliv_pct"], 46.82)
+        with self.assertRaises(bhav.BhavError):
+            bhav.parse("<html>not a file</html>")
+
+    def test_a_split_sized_fall_marks_the_stock_and_swing_leaves_it_out(self):
+        bhav, sw = load("trader-data", "bhav"), load("trader-swing", "swing")
+        with tempfile.TemporaryDirectory() as d:
+            for k, close in enumerate((100.0, 50.0)):
+                row = "ABC, EQ, %02d-Nov-2026, 100, %s, %s, %s, %s, %s, %s, 1000, 10, 5, 500, 50\n" % ((12 + k,) + (close,) * 6)
+                with open(os.path.join(d, "2026-11-%02d.csv" % (12 + k)), "w") as fh:
+                    fh.write(self.TEXT.split("\n")[0] + "\n" + row)
+            _, hist = bhav.history(10, cache=d)
+            self.assertTrue(hist["ABC"]["ca_suspect"])
+            self.assertEqual(sw.usable(hist, min_bars=1)[0], {})
+
+
+class Gems(unittest.TestCase):
+    def doc(self, **over):
+        y = lambda rev, ni, debt: {"TotalRevenue": rev, "NetIncome": ni, "StockholdersEquity": 100e7, "TotalDebt": debt,
+                                   "CashAndCashEquivalents": 20e7, "OperatingCashFlow": 10e7, "LandAndImprovements": 30e7}
+        d = {"symbol": "XYZ", "currency": "INR", "mcap": 300e7,
+             "years": {"2023-03-31": {"LandAndImprovements": 1.0}, "2024-03-31": y(80e7, 8e7, 5e7),
+                       "2025-03-31": y(90e7, 9e7, 5e7), "2026-03-31": y(100e7, 15e7, 5e7)}}
+        d.update(over)
+        return d
+
+    def test_metrics_and_the_stray_year(self):
+        gems = load("trader-gems", "gems")
+        m, why = gems.metrics(self.doc())
+        self.assertIsNone(why)
+        self.assertEqual((m["mcap_cr"], m["debt_equity"], m["roe_pct"], m["pe"]), (300.0, 0.05, 15.0, 20.0))
+        self.assertAlmostEqual(m["revenue_growth_pct"], 25.0)   # from 2024, not the stray 2023 row
+        self.assertEqual(m["land_pct_of_mcap"], 10.0)
+        self.assertEqual(m["ocf_positive_years"], 3)
+
+    def test_missing_and_foreign_data_is_dropped_not_guessed(self):
+        gems = load("trader-gems", "gems")
+        self.assertEqual(gems.metrics(self.doc(currency="USD"))[1], "reports in USD, not rupees")
+        self.assertEqual(gems.metrics(self.doc(mcap=None))[1], "a needed field is missing")
+        self.assertEqual(gems.metrics({"symbol": "Q", "years": {}})[1], "no data")
+
+    def test_the_screen_filters(self):
+        gems = load("trader-gems", "gems")
+        a = argparse.Namespace(min_mcap_cr=50, max_mcap_cr=2000, max_debt_equity=0.1, min_ocf_years=3, min_roe=None, min_land_pct=None)
+        m, _ = gems.metrics(self.doc())
+        self.assertIsNone(gems.passes(m, a))
+        a.max_debt_equity = 0.01
+        self.assertEqual(gems.passes(m, a), "debt")
+        a.max_debt_equity, a.min_land_pct = 0.1, 50
+        self.assertEqual(gems.passes(m, a), "land")
+        self.assertIn("Debt to equity < 0.1", gems.screener_query(a))
+
+
+class Journal(unittest.TestCase):
+    def test_fifo_pairing_and_costing(self):
+        j = load("trader-journal", "journal")
+        fills = [{"symbol": "ABC", "side": "buy", "qty": "10", "price": 100.0, "date": "2026-11-16"},
+                 {"symbol": "ABC", "side": "buy", "qty": "10", "price": 110.0, "date": "2026-11-17"},
+                 {"symbol": "ABC", "side": "sell", "qty": "15", "price": 120.0, "date": "2026-11-17"}]
+        closed, open_lots = j.pair_fills(fills)
+        self.assertEqual([(t["qty"], t["buy"]) for t in closed], [(10.0, 100.0), (5.0, 110.0)])
+        self.assertEqual(open_lots[0]["qty"], 5.0)
+        t0, t1 = j.cost(closed[0]), j.cost(closed[1])
+        self.assertEqual((t0["style"], t1["style"]), ("swing", "intraday"))
+        self.assertLess(t0["net"], t0["gross"])
+        s = j.stats([t0, t1])
+        self.assertEqual((s["trades"], s["win_pct"]), (2, 100.0))
+
+    def test_report_says_when_charges_ate_the_gain(self):
+        j = load("trader-journal", "journal")
+        t = j.cost({"symbol": "ITC", "qty": 30, "buy": 279.0, "sell": 279.2, "bought": "2026-11-18", "sold": "2026-11-18", "setup": "orb"})
+        doc = {"all": j.stats([t]), "by_style": {"intraday": j.stats([t])}, "by_setup": {"orb": j.stats([t])}, "open": [], "trades": [t]}
+        out = j.render(doc)
+        self.assertIn("charges turned it into a loss", out)
+        self.assertIn("too few to judge", out)
 
 
 if __name__ == "__main__":

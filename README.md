@@ -1,6 +1,6 @@
 # The Day Trader skill, for the NSE
 
-11 Claude skills for day trading on the NSE: scan the market for setups, track quarterly results, time every entry and exit, and replay every outcome before you risk a rupee. You place the orders.
+15 Claude skills for trading on the NSE: intraday and swing scans with honest backtests, a small-company fundamentals screen, results research, risk limits, charges and a journal. You place the orders.
 
 This is a port of [jakeschincariol/day-trader-skill](https://github.com/jakeschincariol/day-trader-skill) (MIT, US stocks) to India: IST clock, NSE holidays, NSE symbols, rupees and the 0.05 tick. The original is the work of its author; the port changes the market, not the method.
 
@@ -42,7 +42,7 @@ In the desktop app `/plugin` opens a window instead: add `yuvrajyadav3141/day-tr
 git clone https://github.com/yuvrajyadav3141/day-trader-skill-nse.git
 cd day-trader-skill-nse
 mkdir -p ~/.claude/skills
-cp -R trader-* ~/.claude/skills/
+cp -R trader trader-* ~/.claude/skills/
 ```
 
 Copy `trader-data` too: the `trader-*` pattern includes it, and the tools import it. Start a new Claude session afterwards. To update later, `git pull` and run the same `cp -R` again.
@@ -58,7 +58,7 @@ mkdir -p trader
 cp ~/.claude/skills/trader-budget/config.example.json trader/config.json
 ```
 
-Edit `trader/config.json`: `budget`, `max_loss_per_trade_inr` and `max_daily_loss_inr` first. The example uses 1,00,000 rupees, 500 and 1,500. Everything else (entry window 09:30 to 15:00, flat by 15:10, `"product": "MIS"`) can stay.
+Edit `trader/config.json`: `budget`, `max_loss_per_trade_inr` and `max_daily_loss_inr` first. The example is for a Rs 25,000 account: 25,000, 250 and 500, with a separate `swing_*` set for delivery trades. Everything else (entry window 09:30 to 15:00, flat by 15:10, `"product": "MIS"`) can stay.
 
 **3. Run it**
 
@@ -68,6 +68,10 @@ Ask Claude, or run the tools directly:
 python3 ~/.claude/skills/trader-scanner/scan.py universe     # once: the NSE EQ list
 python3 ~/.claude/skills/trader-scanner/scan.py daily        # before the open
 python3 ~/.claude/skills/trader-scanner/scan.py orb          # after 9:35 AM IST
+python3 ~/.claude/skills/trader-swing/swing.py sync          # a year of NSE daily files, about 2 minutes
+python3 ~/.claude/skills/trader-swing/swing.py scan          # multi-day setups
+python3 ~/.claude/skills/trader-swing/swing.py backtest --all
+python3 ~/.claude/skills/trader-gems/gems.py fetch           # one to two hours, once; then: gems.py screen
 ```
 
 Then the order of the pack is: scanner, news, entry, exit, timemachine, budget, risk, broker. Each step reads what the one before wrote into `trader/`.
@@ -90,21 +94,61 @@ You run Zerodha's login yourself; the tools never see your password or TOTP and 
 - *"holiday list unknown":* the built-in NSE holiday list covers 2026 only. Check nseindia.com, and see Contributing below.
 - *Yahoo is slow or rate-limiting:* wait a minute; the tools retry once.
 
-## The eleven
+## Start here
+
+Type `/trader`. It asks what you want to do and walks the right skills in order: morning routine, an intraday
+trade, a swing trade, small-company research, results, managing an open trade, or a weekly review.
+
+## What the backtest says (read this first)
+
+`/trader-swing backtest --all` on a year of NSE data (2025-10-24 to 2026-11-13, 2,298 stocks), buying the next open
+after a signal, stop 2x ATR, target 2R, out after 10 sessions, on a Rs 25,000 account:
+
+| setup | trades | win % | before charges | after charges | first half / second half |
+| --- | --- | --- | --- | --- | --- |
+| volume shocker | 3,152 | 42.5 | -0.031 R | -0.129 R | -0.019 / -0.042 |
+| 9/21 EMA cross | 4,540 | 45.9 | -0.093 R | -0.614 R | -0.117 / -0.068 |
+| 20/50 EMA cross | 2,383 | 45.4 | -0.239 R | -0.843 R | -0.397 / +0.007 |
+| 52-week closing high | 982 | 41.2 | -0.058 R | -0.645 R | - / -0.058 |
+| gap up | 1,221 | 58.6 | +0.213 R | +0.117 R | +0.313 / -0.084 |
+| momentum leader | 3,911 | 37.4 | -0.157 R | -0.254 R | - / -0.157 |
+
+R is the result in units of the money risked. Buying any liquid stock on any day with the same exit: -0.015 R.
+**Five of the six popular setups did no better than that, and the sixth only worked in the first half of the year.**
+Charges on a small account made every one worse. This is one year with no slippage, so real results would be worse
+still. The pack does not contain a winning signal. What it gives you is small, fixed losses, honest odds before a
+trade, proper research, and a record of what you actually did.
+
+## The fifteen
 
 | command | job |
 | --- | --- |
-| `/trader-scanner` | Scans the NSE EQ list for opening-range breakouts, flags, oversold bounces. |
-| `/trader-news` | Quarterly results, board meetings and announcements for your watchlist, from NSE's feeds. |
-| `/trader-entry` | Watches a setup bar by bar and tells you the moment to get in. |
-| `/trader-exit` | Sets your stop and target (on the 0.05 tick) before you enter. |
-| `/trader-timemachine` | Replays the rest of the session 10,000 times plus every past day the setup fired. |
-| `/trader-risk` | Checks every trade against your limits. PASS or BLOCK, with the reason. |
-| `/trader-budget` | Sizes the position to your budget and max loss per trade, in rupees. |
-| `/trader-broker` | Prints the Kite order form (MIS), the stop-loss and target to place, and logs your fills. |
-| `/trader-alerts` | Rings on the stop, the target, the 9:15 open and flat-by 15:10. |
-| `/trader-analyst` | Last quarters' revenue, profit, EPS and margins side by side. |
+| `/trader` | The guided front door: one step at a time, both tracks. |
+| **Find** | |
+| `/trader-scanner` | Intraday: opening-range breakouts, flags, oversold bounces across the NSE EQ list. |
+| `/trader-swing` | Multi-day: volume shockers, EMA crossovers, 52-week highs, gap-ups, momentum, each with a backtest; plans a CNC position. |
+| `/trader-gems` | Small companies: low debt, cash flow, growth, land on the books; then a reading checklist. |
 | `/trader-deals` | Bulk and block deals, with the clients who made them. |
+| **Research** | |
+| `/trader-news` | Quarterly results, board meetings and announcements from NSE's feeds; downloads the filing to read. |
+| `/trader-analyst` | Last quarters' revenue, profit, EPS and margins side by side. |
+| **Plan an intraday trade** | |
+| `/trader-entry` | Watches a setup bar by bar and says when it triggers. |
+| `/trader-exit` | Sets the stop and target (on the 0.05 tick) before you enter. |
+| `/trader-timemachine` | Replays the rest of the session 10,000 times plus every past day the setup fired. |
+| `/trader-budget` | Sizes the position to your max loss, and shows the result after Zerodha charges. |
+| `/trader-risk` | Checks the trade against your limits. PASS or BLOCK, with the reason. |
+| **Place and manage** | |
+| `/trader-broker` | Prints the Kite order form and logs your fills. You place the order. |
+| `/trader-alerts` | Rings on the stop, the target, the 9:15 open and flat-by 15:10. |
+| **Review** | |
+| `/trader-journal` | Your closed trades after charges: win rate, average win and loss, by setup. |
+
+## Connectors
+
+If Claude has the Zerodha Kite and NSE connectors in the session, the skills use them for live quotes, circuit
+limits, 5-minute candles, volume history and corporate actions, and fall back to free Yahoo data without them.
+They are read-only here: no skill places, modifies or cancels an order through a connector.
 
 ## One trade, run live on 2026-11-06
 
@@ -113,7 +157,7 @@ RELIANCE, Friday 2026-11-06, Yahoo data, replayed at 10:30 AM IST:
 1. `/trader-entry`: opening range 1295.60 to 1306.00; the 9:45 bar closed at 1311.90, above it: **TRIGGERED, 9:50 AM**.
 2. `/trader-exit`: stop 1300.80 (range midpoint), target 1323.00 (1R), risk 11.10 a share, flat by 15:10.
 3. `/trader-timemachine`: 10,000 replays on RELIANCE's last 58 full sessions: target first 27.4 %, stop first 38.9 %, 33.7 % still open at 3:10 PM. On those sessions the same rule fired 28 times: 13 target, 10 stop, 5 neither. Verdict: leans toward the stop.
-4. `/trader-budget` (₹1,00,000 budget, ₹500 max loss per trade): 45 shares, ₹59,035.50, max loss ₹499.50.
+4. `/trader-budget` (run then with a ₹1,00,000 budget and ₹500 max loss per trade): 45 shares, ₹59,035.50, max loss ₹499.50.
 5. `/trader-risk`: PASS at 10:30; BLOCK at 09:20 (before 09:30), at 15:05 (after 15:00) and on 2026-11-10 (Diwali-Balipratipada, NSE closed).
 6. `/trader-broker`: the Kite form, READY. You place the buy, then the SL-M stop and the LIMIT target, and log them.
 
@@ -145,8 +189,12 @@ two five-minute bars on most NSE days. NSE's RSS feeds hold only recent filings,
 Check anything that matters in Kite before you act on it.
 
 **Not modelled:** the Diwali Muhurat session, 2027 holidays (not published when this was written; the tools say
-"unknown" instead of guessing), brokerage and statutory charges (STT, GST, exchange fees), MIS leverage (the budget
+"unknown" instead of guessing), slippage, MIS leverage (the budget
 counts full price), F&O, and SEBI insider-trading (PIT) disclosures.
+
+**The fundamentals screen is a filter, not research.** Land is at book cost, debt is as of the last balance sheet,
+Yahoo's numbers for small companies have errors, and the screen cannot see promoter pledges or auditor remarks.
+Screener.in is not read by the tools: its terms allow personal viewing only.
 
 **Taxes.** Intraday equity gains are taxed as speculative business income in India. Nothing here is tax advice.
 
@@ -159,7 +207,8 @@ Issues and pull requests are welcome, especially: the 2027 NSE holiday list when
 ```
 trader-*/SKILL.md      the skill (what Claude reads)
 trader-*/*.py          the tool (what Claude runs)
-trader-data/           optional Kite Connect source, shared by the tools
+trader/SKILL.md        the guided front door
+trader-data/           shared code: NSE daily files, Zerodha charges, optional Kite Connect source
 tests/                 offline tests and fixtures
 ```
 

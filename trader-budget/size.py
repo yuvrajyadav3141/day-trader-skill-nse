@@ -58,6 +58,9 @@ import math
 import os
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-data"))
+import charges  # noqa: E402  (Zerodha round-trip charges)
+
 # v2 defaults: the contract's config.example.json. Missing keys fall back to these.
 DEFAULTS = {
     "budget": None,
@@ -449,6 +452,12 @@ def plan_report(s, order, notes=()):
     lines.append("Size: %d shares of %s = %s at %s. Max loss at the stop: %d x %s = %s."
                  % (s["qty"], s["symbol"], money(s["cost"]), _price(s["entry"]), s["qty"],
                     _price(s["risk_per_share"]), money(s["max_loss"])))
+    win = charges.round_trip(s["entry"], s["target"], s["qty"])
+    loss = charges.round_trip(s["entry"], s["stop"], s["qty"])
+    lines.append("After Zerodha charges (about %s a round trip): %s at the target, %s at the stop. Reward:risk after charges %.2f."
+                 % (money(win["total"]), money(win["net"]), money(loss["net"]), win["net"] / -loss["net"] if loss["net"] < 0 else 0))
+    if loss["net"] < 0 and win["net"] / -loss["net"] < 1.0:
+        lines.append("Charges take the trade under 1:1: on a position this small a wider target or no trade is the honest choice.")
     lines.append("A stop is an order, not a promise: in a fast market it can fill below %s." % _price(s["stop"]))
     lines.append("")
     lines.append("Proposed bracket order (nothing has been placed; you place it in Kite):")

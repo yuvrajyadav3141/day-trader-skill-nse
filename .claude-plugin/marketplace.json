@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "day-trader-skills-nse",
-      "description": "Eleven Claude skills for NSE day trading: a chart scanner, a quarterly-results monitor, an entry timer, an exit planner, a time machine that replays 10,000 sessions, a risk manager, a budget manager, a Kite order-ticket writer (you place the orders), price alerts, a results analyst and a bulk/block-deals tracker.",
+      "description": "15 Claude skills for trading on the NSE: intraday and swing scans with honest backtests, a small-company fundamentals screen, results research, risk limits, charges and a journal. You place the orders.",
       "source": "./",
       "category": "productivity",
       "homepage": "https://github.com/jakeschincariol/day-trader-skill"
