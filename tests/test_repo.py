@@ -39,7 +39,7 @@ class Repo(unittest.TestCase):
         self.assertEqual(found, sorted(SKILLS))
 
     def test_root_matches_the_reel(self):
-        root = sorted(d for d in os.listdir(ROOT) if not d.startswith(".git"))
+        root = sorted(d for d in os.listdir(ROOT) if not d.startswith(".git") and d != ".DS_Store")  # Finder's file
         self.assertEqual(root, sorted([".claude-plugin", "LICENSE", "README.md", "tests", "trader-data"] + SKILLS))
 
     def test_frontmatter_name_and_description(self):

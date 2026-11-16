@@ -458,6 +458,32 @@ class Swing(unittest.TestCase):
         self.assertLess(p["max_loss"], 280)
         self.assertEqual(p["product"], "CNC")
 
+    def test_live_bar_from_spark_and_the_volume_labels(self):
+        sw = self.sw
+        text = json.dumps({"spark": {"result": [{"symbol": "XYZ.NS", "response": [{
+            "meta": {"symbol": "XYZ.NS", "regularMarketPrice": 105.5, "regularMarketVolume": 1500000,
+                     "regularMarketDayHigh": 106.0, "regularMarketDayLow": 99.5, "chartPreviousClose": 100.0,
+                     "regularMarketTime": _synth.ts(D(2026, 11, 16), "12:20")},
+            "indicators": {"quote": [{"close": [100.2, None, 105.5]}]}}]},
+            {"symbol": "DEAD.NS", "response": [{"meta": {"symbol": "DEAD.NS"}, "indicators": {"quote": [{"close": []}]}}]}]}})
+        q = sw.parse_spark(text)
+        self.assertEqual(list(q), ["XYZ"])                       # no price, no bar
+        self.assertEqual((q["XYZ"]["o"], q["XYZ"]["h"], q["XYZ"]["v"]), (100.2, 106.0, 1500000))
+        self.assertEqual(sw.session_fraction(datetime.datetime(2026, 11, 16, 12, 22)), 187 / 375.0)
+        self.assertEqual(sw.session_fraction(datetime.datetime(2026, 11, 16, 8, 0)), 0.0)
+        today = D(2026, 11, 16)
+        hits, stale = sw.live_scan({"XYZ": self.flat}, q, ["volume_shocker"], 0.5, today, 0, 0, 1e9)
+        self.assertEqual(hits[0]["setups"], ["volume_shocker"])  # 5x a full day already, close near the high
+        self.assertEqual((hits[0]["volume_x_so_far"], hits[0]["volume_pace_x"]), (5.0, 10.0))
+        q["XYZ"]["c"] = 103.2                                    # still up 3 %+, but off the day's high
+        hits, _ = sw.live_scan({"XYZ": self.flat}, q, ["volume_shocker"], 0.5, today, 0, 0, 1e9)
+        self.assertEqual(hits[0]["setups"], ["heavy_volume"])
+        q["XYZ"].update(c=105.5, v=500000)                       # 1.7x a day so far, but 3.3x on pace
+        hits, _ = sw.live_scan({"XYZ": self.flat}, q, ["volume_shocker"], 0.5, today, 0, 0, 1e9)
+        self.assertEqual(hits[0]["setups"], ["volume_pace"])
+        hits, stale = sw.live_scan({"XYZ": self.flat}, q, ["volume_shocker"], 0.5, D(2026, 11, 17), 0, 0, 1e9)
+        self.assertEqual((hits, stale), ([], 1))                 # yesterday's quote is not a live bar
+
 
 class Charges(unittest.TestCase):
     def test_intraday_and_delivery_round_trips(self):
@@ -523,6 +549,13 @@ class Gems(unittest.TestCase):
         self.assertEqual(gems.metrics(self.doc(currency="USD"))[1], "reports in USD, not rupees")
         self.assertEqual(gems.metrics(self.doc(mcap=None))[1], "a needed field is missing")
         self.assertEqual(gems.metrics({"symbol": "Q", "years": {}})[1], "no data")
+
+    def test_an_empty_cache_says_to_fetch_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            rc, out, err = run("trader-gems", "gems.py", ["screen", "--symbols", "ABC", "XYZ"], d)
+        self.assertEqual(rc, 1)
+        self.assertIn("gems.py fetch", err)
+        self.assertEqual(out, "")
 
     def test_the_screen_filters(self):
         gems = load("trader-gems", "gems")

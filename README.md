@@ -69,7 +69,8 @@ python3 ~/.claude/skills/trader-scanner/scan.py universe     # once: the NSE EQ 
 python3 ~/.claude/skills/trader-scanner/scan.py daily        # before the open
 python3 ~/.claude/skills/trader-scanner/scan.py orb          # after 9:35 AM IST
 python3 ~/.claude/skills/trader-swing/swing.py sync          # a year of NSE daily files, about 2 minutes
-python3 ~/.claude/skills/trader-swing/swing.py scan          # multi-day setups
+python3 ~/.claude/skills/trader-swing/swing.py scan          # multi-day setups on closed sessions
+python3 ~/.claude/skills/trader-swing/swing.py live          # the same setups on today's prices so far
 python3 ~/.claude/skills/trader-swing/swing.py backtest --all
 python3 ~/.claude/skills/trader-gems/gems.py fetch           # one to two hours, once; then: gems.py screen
 ```

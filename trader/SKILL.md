@@ -10,12 +10,12 @@ description: >-
   for live data. Use when the user says "trader", "start", "what should I do
   today", "morning routine", "walk me through a trade", "help me trade",
   "where do I begin", or names no specific skill.
-argument-hint: "[morning | intraday | swing | gems | results | manage | review]"
+argument-hint: "[morning | intraday | live | swing | gems | results | manage | review]"
 ---
 
 # trader
 
-One command for the whole pack. Ask the user which of the seven routes below they
+One command for the whole pack. Ask the user which of the eight routes below they
 want (or take it from their words), then run that route step by step. After each
 step say what it found in two or three plain sentences and what comes next. Stop
 whenever a step says stop.
@@ -47,14 +47,15 @@ Rs 500 a day, 2 intraday trades a day, 3 swing positions at most. Ask the user
 for their real numbers and edit the file. If money is added monthly, raise
 `budget` and `swing_capital` when it arrives, not before.
 
-## The seven routes
+## The eight routes
 
 | route | when | steps |
 | --- | --- | --- |
 | **morning** | before 9:15 | `swing.py sync` (yesterday's file) -> `/trader-news` for holdings and watchlist (results due today?) -> `/trader-scanner daily` -> `/trader-swing scan` -> `/trader-deals` |
 | **intraday** | 9:35 to 15:00 | `/trader-scanner orb` -> user picks one -> `/trader-news` -> `/trader-entry` -> `/trader-exit` -> `/trader-timemachine` -> `/trader-budget` -> `/trader-risk` -> `/trader-broker` -> `/trader-alerts` |
+| **live** | 9:30 to 15:30 | `/trader-swing live` -> user picks one -> Kite quote and circuit limits -> `/trader-news` -> then the intraday route from `/trader-entry`, or the swing route's `plan` near the close |
 | **swing** | after the close, or before the open | `/trader-swing scan` -> `backtest` for the setup that fired -> user picks one -> `/trader-news` and `/trader-analyst` -> `/trader-swing plan` -> user places CNC buy and a GTT OCO -> `/trader-journal add` when closed |
-| **gems** | any time | `/trader-gems screen` -> user picks one -> `gems.py show` -> the research checklist in trader-gems -> if still interested, `/trader-swing plan` for size |
+| **gems** | any time | `gems.py fetch` once in this folder (one to two hours) -> `/trader-gems screen` -> user picks one -> `gems.py show` -> the research checklist in trader-gems -> if still interested, `/trader-swing plan` for size |
 | **results** | when a company reports | `/trader-news` -> save and read the filing -> `/trader-analyst` -> price and volume reaction |
 | **manage** | a trade is open | `/trader-alerts check` -> stop or target hit: record the fill with `/trader-broker` -> at 15:10 for intraday: `ticket.py flatten` |
 | **review** | weekly | `/trader-journal report` -> compare with the backtest and the limits -> one thing to change |

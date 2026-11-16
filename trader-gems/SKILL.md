@@ -31,6 +31,10 @@ python3 "${CLAUDE_SKILL_DIR}/gems.py" screen --min-land-pct 20    # land on the 
 python3 "${CLAUDE_SKILL_DIR}/gems.py" show 20MICRONS              # four years, line by line
 ```
 
+**Run `fetch` first, in the same folder you trade from.** The numbers are cached in that folder's
+`trader/cache/fund/`; in a new folder `screen` has nothing to read and says so. `screen` works on a partly
+fetched cache and prints PARTIAL.
+
 Needs `trader/universe.txt` (`scan.py universe`). The traded-a-day column needs `swing.py sync`.
 
 ## Data, and why not Screener.in

@@ -2,7 +2,8 @@
 """Swing scans, their backtest and a position plan for trader-swing. Standard library only.
 
     python3 swing.py sync                                  # NSE daily files -> trader/cache/bhav (once a day)
-    python3 swing.py scan                                  # every setup, latest session
+    python3 swing.py scan                                  # every setup, latest CLOSED session
+    python3 swing.py live                                  # the same setups on today's prices so far (market hours)
     python3 swing.py scan --setups volume_shocker,ema_9_21 --max-price 500
     python3 swing.py backtest --setup volume_shocker       # how that rule did on the cached history
     python3 swing.py backtest --all
@@ -23,6 +24,17 @@ sessions and average at least --min-turnover-cr a day over 20 sessions):
   momentum        up 30 % or more over 60 sessions and within 10 % of its 250-session closing high
                   (a state, not an event: it stays on for days)
 
+Live: `live` adds today's bar so far to the cached history and runs the same rules. Today's price,
+day high, day low and volume so far come from Yahoo's spark endpoint, 20 stocks a request (free,
+unofficial, can lag a few minutes); today's open is approximated by the first 5-minute close. Two
+volume readings: "so far" against a FULL average day (a volume shocker fires only when today has
+already traded 3x an average day), and "pace", so far divided by the share of the session gone.
+Pace overstates before about 10:30, because the first hour is the busiest: it is shown, and tagged
+`volume_pace` (pace 3x+, up 3 %+), but it is not a volume shocker until the volume is really there.
+`heavy_volume` means the 3x volume IS there and the stock is up 3 %+, but the price has fallen out of
+the top 30 % of the day's range, so the shocker rule does not fire.
+A live hit can vanish by the close: the rules were tested on closing prices, not on mid-day ones.
+
 Backtest: for every past session a setup fired, buy at the NEXT session's open, stop at entry minus
 --stop-atr (2) x the 14-day ATR, target --target-r (2) x that risk, out at the close after --hold
 (10) sessions if neither is hit. A bar that touches both counts as the stop; a gap through the
@@ -39,6 +51,10 @@ import json
 import math
 import os
 import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-data"))
 import bhav      # noqa: E402
@@ -47,9 +63,15 @@ import charges   # noqa: E402
 SETUPS = ("volume_shocker", "ema_9_21", "ema_20_50", "high_52w", "gap_up", "momentum")
 WORDS = {"volume_shocker": "volume shocker", "ema_9_21": "9/21 EMA cross", "ema_20_50": "20/50 EMA cross",
          "high_52w": "52-week closing high", "gap_up": "gap up", "momentum": "momentum leader"}
+LIVE_WORDS = {"heavy_volume": "3x volume but off the day's high", "volume_pace": "volume pace (not yet 3x a day)"}
 DEFAULTS = {"swing_capital": 25000, "swing_max_loss_per_trade_inr": 250, "swing_max_position_pct": 40,
             "swing_max_open_positions": 3}
 TICK = 0.05
+UA = "Mozilla/5.0 (compatible; day-trader-skill/2.0; +https://github.com/Jakeschincariol/day-trader-skill)"
+SPARK = "https://%s.finance.yahoo.com/v7/finance/spark?symbols=%s&range=1d&interval=5m"
+SPARK_MAX = 20
+IST = datetime.timedelta(hours=5, minutes=30)
+OPEN_MIN, CLOSE_MIN = 9 * 60 + 15, 15 * 60 + 30
 
 
 class SwingError(Exception):
@@ -146,6 +168,90 @@ def scan(stocks, setups, min_turnover_cr, min_price, max_price):
                          "atr": round(s["atr"][i], 2)})
     hits.sort(key=lambda h: (-len(h["setups"]), -h["volume_x"]))
     return hits
+
+
+# ---------------------------------------------------------------- live
+
+def _spark(symbols):
+    ys = ",".join(urllib.parse.quote(s + ".NS", safe="") for s in symbols)
+    last = "no answer"
+    for host in ("query2", "query1"):
+        req = urllib.request.Request(SPARK % (host, ys), headers={"User-Agent": UA, "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=25) as r:
+                return r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            last = "HTTP %d" % e.code
+            e.close()
+            if e.code == 429:
+                time.sleep(5)
+        except (urllib.error.URLError, OSError) as e:
+            last = "could not connect: %s" % getattr(e, "reason", e)
+    raise SwingError("Yahoo did not answer (%s)" % last)
+
+
+def parse_spark(text):
+    """Spark JSON -> {SYM: today's bar so far}. Stocks without a price or volume are left out."""
+    out = {}
+    try:
+        results = json.loads(text)["spark"]["result"] or []
+    except (ValueError, KeyError, TypeError):
+        raise SwingError("Yahoo's spark answer is not the shape this tool knows")
+    for item in results:
+        resp = (item.get("response") or [{}])[0] or {}
+        m = resp.get("meta") or {}
+        sym = str(m.get("symbol") or item.get("symbol") or "").upper()
+        sym = sym[:-3] if sym.endswith(".NS") else sym
+        closes = [c for c in (((resp.get("indicators") or {}).get("quote") or [{}])[0].get("close") or []) if c is not None]
+        price, vol, t = m.get("regularMarketPrice"), m.get("regularMarketVolume"), m.get("regularMarketTime")
+        if not sym or not price or not vol or not t or not closes:
+            continue
+        out[sym] = {"o": closes[0], "h": m.get("regularMarketDayHigh") or max(closes + [price]),
+                    "l": m.get("regularMarketDayLow") or min(closes + [price]), "c": float(price),
+                    "prev": m.get("chartPreviousClose") or m.get("previousClose"), "v": int(vol),
+                    "turnover_lacs": price * vol / 1e5, "deliv_pct": None, "time": int(t)}
+    return out
+
+
+def session_fraction(now_ist):
+    """The share of the 9:15 to 15:30 session that has passed, between 0 and 1."""
+    mins = now_ist.hour * 60 + now_ist.minute
+    return max(0.0, min(1.0, (mins - OPEN_MIN) / float(CLOSE_MIN - OPEN_MIN)))
+
+
+def live_scan(stocks, quotes, setups, frac, today, min_turnover_cr, min_price, max_price):
+    """Add today's bar so far to each stock's history and run the rules on it."""
+    hits, stale = [], 0
+    for sym, bars in stocks.items():
+        q = quotes.get(sym)
+        if not q:
+            continue
+        if (datetime.datetime.utcfromtimestamp(q["time"]) + IST).date() != today:
+            stale += 1                               # no trade today: yesterday's quote is not a live bar
+            continue
+        s0 = series(bars)
+        last = len(bars) - 1
+        if s0["avgt"][last] is None or s0["avgt"][last] < min_turnover_cr or not min_price <= q["c"] <= max_price:
+            continue
+        both = bars + [q]
+        s = series(both)
+        i = len(both) - 1
+        f = [x for x in fired(both, s, i) if x in setups]
+        so_far = q["v"] / s["avgv"][i]
+        pace = so_far / frac if frac >= 0.04 else None           # not before 9:30
+        chg = (q["c"] / bars[-1]["c"] - 1) * 100
+        if "volume_shocker" in setups and "volume_shocker" not in f and chg >= 3:
+            if so_far >= 3:
+                f.append("heavy_volume")             # the volume is there, but the price is off the day's high
+            elif pace and pace >= 3:
+                f.append("volume_pace")
+        if f:
+            hits.append({"symbol": sym, "setups": f, "price": q["c"], "change_pct": round(chg, 2),
+                         "volume_x_so_far": round(so_far, 2), "volume_pace_x": round(pace, 1) if pace else None,
+                         "avg_turnover_cr": round(s0["avgt"][last], 2), "atr": round(s0["atr"][last], 2),
+                         "quote_time": (datetime.datetime.utcfromtimestamp(q["time"]) + IST).strftime("%H:%M")})
+    hits.sort(key=lambda h: (-len(h["setups"]), -h["volume_x_so_far"]))
+    return hits, stale
 
 
 # ---------------------------------------------------------------- backtest
@@ -353,6 +459,69 @@ def cmd_scan(a):
     return 0 if hits else 1
 
 
+def cmd_live(a):
+    setups = [s.strip() for s in a.setups.split(",")] if a.setups else list(SETUPS)
+    bad = [s for s in setups if s not in SETUPS]
+    if bad:
+        raise SwingError("unknown setup %s: choose from %s" % (", ".join(bad), ", ".join(SETUPS)))
+    now = datetime.datetime.utcnow() + IST
+    dates, stocks, skipped = _load(a, 260)
+    if dates[-1] >= now.date():
+        raise SwingError("today's closing file is already cached: the session is over, use `swing.py scan`")
+    if (now.date() - dates[-1]).days > 5:
+        raise SwingError("the price files stop at %s: run `swing.py sync` first" % dates[-1])
+    liquid = []
+    for sym, bars in stocks.items():
+        t = sum(b["turnover_lacs"] for b in bars[-20:]) / 2000.0
+        if t >= a.min_turnover_cr and a.min_price <= bars[-1]["c"] <= a.max_price * 1.3:
+            liquid.append(sym)
+    liquid.sort()
+    batches = [liquid[i:i + SPARK_MAX] for i in range(0, len(liquid), SPARK_MAX)]
+    if not a.json:
+        print("Fetching live prices for %d liquid stocks (%d requests)..." % (len(liquid), len(batches)), file=sys.stderr)
+    quotes, failed = {}, 0
+    for k, batch in enumerate(batches):
+        if k:
+            time.sleep(a.pause)
+        try:
+            quotes.update(parse_spark(_spark(batch)))
+        except SwingError:
+            failed += len(batch)
+    if not quotes:
+        raise SwingError("no live prices came back from Yahoo: try again in a minute")
+    now = datetime.datetime.utcnow() + IST
+    frac = session_fraction(now)
+    hits, stale = live_scan(stocks, quotes, setups, frac, now.date(), a.min_turnover_cr, a.min_price, a.max_price)
+    doc = {"created_by": "trader-swing", "mode": "live", "as_of": now.strftime("%Y-%m-%d %H:%M IST"), "history_to": dates[-1].isoformat(),
+           "session_fraction": round(frac, 2), "asked": len(liquid), "quoted": len(quotes), "failed": failed,
+           "no_trade_today": stale, "hits": hits}
+    if a.write:
+        os.makedirs(os.path.join("trader", "swing"), exist_ok=True)
+        with open(os.path.join("trader", "swing", "live.json"), "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=2)
+    if a.json:
+        print(json.dumps(doc, indent=2))
+        return 0 if hits else 1
+    if frac <= 0 or frac >= 1:
+        print("The market is not open (%s IST). These are the last prices Yahoo has, not live ones." % now.strftime("%H:%M"))
+    print("Live scan %s IST, %d %% of the session gone. Prices for %d of %d liquid stocks%s; history to %s."
+          % (now.strftime("%H:%M"), round(frac * 100), len(quotes), len(liquid),
+             (" (%d failed)" % failed) if failed else "", dates[-1]))
+    print("%d match a rule on today's bar SO FAR. A live hit can vanish by the close." % len(hits))
+    print("%-12s %9s %7s %8s %7s %8s %6s  %s" % ("symbol", "price", "chg %", "vol/day", "pace x", "cr/day", "as of", "setups"))
+    for h in hits[:a.show]:
+        print("%-12s %9.2f %+7.2f %8.2f %7s %8.2f %6s  %s" % (
+            h["symbol"], h["price"], h["change_pct"], h["volume_x_so_far"],
+            ("%.1f" % h["volume_pace_x"]) if h["volume_pace_x"] else "-", h["avg_turnover_cr"], h["quote_time"],
+            ", ".join(LIVE_WORDS.get(s) or WORDS[s] for s in h["setups"])))
+    if len(hits) > a.show:
+        print("... and %d more (--show N, or --json)." % (len(hits) - a.show))
+    print("'vol/day' is today's volume so far as a multiple of an average FULL day. 'pace x' divides that by the share of")
+    print("the session gone; it overstates in the first hour. Yahoo's quotes are free and can lag a few minutes: check the")
+    print("price in Kite. A scan lists charts that match a rule, not stocks to buy; see `swing.py backtest --all`.")
+    return 0 if hits else 1
+
+
 def cmd_backtest(a):
     if not a.all and a.setup not in SETUPS:
         raise SwingError("--setup is one of %s (or --all)" % ", ".join(SETUPS))
@@ -429,6 +598,15 @@ def main(argv=None):
     p.add_argument("--show", type=int, default=25)
     p.add_argument("--write", action="store_true")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("live", help="the setups on today's prices so far")
+    p.add_argument("--setups")
+    p.add_argument("--min-turnover-cr", type=float, default=2.0)
+    p.add_argument("--min-price", type=float, default=20.0)
+    p.add_argument("--max-price", type=float, default=1e9)
+    p.add_argument("--show", type=int, default=25)
+    p.add_argument("--pause", type=float, default=0.3)
+    p.add_argument("--write", action="store_true")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("backtest")
     p.add_argument("--setup")
     p.add_argument("--all", action="store_true")
@@ -453,8 +631,8 @@ def main(argv=None):
             new, n = bhav.sync(a.days, say=lambda m: print(m, file=sys.stderr))
             print("%d new file(s), %d sessions cached." % (new, n))
             return 0
-        if a.cmd in ("scan", "backtest", "plan"):
-            return {"scan": cmd_scan, "backtest": cmd_backtest, "plan": cmd_plan}[a.cmd](a)
+        if a.cmd in ("scan", "live", "backtest", "plan"):
+            return {"scan": cmd_scan, "live": cmd_live, "backtest": cmd_backtest, "plan": cmd_plan}[a.cmd](a)
     except (SwingError, bhav.BhavError) as e:
         print("swing.py: %s" % e, file=sys.stderr)
         return 1

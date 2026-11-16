@@ -11,9 +11,9 @@ description: >-
   ATR stop, target, shares sized to your max loss, charges, liquidity
   warnings and the GTT OCO to set in Kite. Use when the user says "volume
   shockers", "EMA crossover", "golden cross", "52 week high", "gap up
-  stocks", "swing trade", "positional", "backtest this setup", "does this
+  stocks", "live scan", "what is moving right now", "intraday volume", "swing trade", "positional", "backtest this setup", "does this
   strategy work", "stocks for the week".
-argument-hint: "[sync | scan | backtest | plan SYMBOL]"
+argument-hint: "[sync | scan | live | backtest | plan SYMBOL]"
 ---
 
 # trader-swing
@@ -27,6 +27,7 @@ position. It is separate from the intraday chain and has its own limits.
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/swing.py" sync                          # NSE daily files -> trader/cache/bhav (first run ~2 min)
 python3 "${CLAUDE_SKILL_DIR}/swing.py" scan --write                  # every setup, latest session -> trader/swing/watchlist.json
+python3 "${CLAUDE_SKILL_DIR}/swing.py" live                          # the same setups on today's prices so far (market hours)
 python3 "${CLAUDE_SKILL_DIR}/swing.py" scan --setups volume_shocker --max-price 500
 python3 "${CLAUDE_SKILL_DIR}/swing.py" backtest --all                # every setup's record
 python3 "${CLAUDE_SKILL_DIR}/swing.py" backtest --setup gap_up --hold 5 --target-r 1.5
@@ -55,6 +56,38 @@ connector is available, confirm with `get_corporate_actions` before trusting a h
 Only stocks that traded on each of the last 60 sessions and average 2 crore a day
 (`--min-turnover-cr`). The scan shows the volume multiple and the delivery
 percentage: a volume spike on 5 % delivery is intraday churn, not buying to hold.
+
+## Live, during market hours
+
+`scan` uses closed sessions, so it shows yesterday. `live` adds today's bar so far to the
+history and runs the same rules: price, day high and low, and volume so far for every
+liquid stock, from Yahoo's spark endpoint (20 stocks a request, about 70 seconds for
+1,350 stocks; free, unofficial, can lag a few minutes). Run `sync` once in the morning first.
+
+| column | meaning |
+| --- | --- |
+| `vol/day` | today's volume so far as a multiple of an average FULL day |
+| `pace x` | that, divided by the share of the session gone. It overstates in the first hour, the busiest of the day |
+
+Three volume labels: **volume shocker** (already 3x a full day, up 3 %+, price in the top 30 % of
+the day's range); **3x volume but off the day's high** (the volume is there, the price has faded);
+**volume pace** (on pace for 3x, not there yet). EMA crosses, 52-week highs and gap-ups are judged
+with the live price standing in for today's close, and today's open is approximated by the first
+5-minute close.
+
+Say these every time:
+- **A live hit can vanish by the close.** The rules, and the backtest, are on closing prices.
+  A cross at 12:20 that un-crosses by 15:30 never fired.
+- **Check the price in Kite before anything.** With the Kite connector, `market mode=quote` for the
+  hit gives the real price, depth and circuit limits. Run on 2026-11-16 at 12:21, Yahoo and Kite agreed
+  to within 0.1 % on the two stocks checked (DHANBANK 42.19 vs 42.20; VIJAYA 1492.50 vs 1493.80).
+- **A stock up 10 % on 50x volume is usually news.** `/trader-news SYMBOL` before anything else, and
+  the circuit limit: a stock near its upper circuit cannot be bought, and one that reverses can lock down.
+- **The backtest did not find an edge in these setups.** Seeing them earlier in the day does not create one.
+
+Faster or official live data, if the connectors are in the session: the NSE connector's
+`cm_get_equity_stocks` (every stock's price and volume, refreshed each minute, 500 a call) or Kite
+`market mode=quote` (500 instruments a call). Use them to confirm a short list, not to rescan the market.
 
 ## The backtest, and what it found
 

@@ -261,6 +261,9 @@ def cmd_screen(a):
             why[fail] = why.get(fail, 0) + 1
         else:
             rows.append(m)
+    if missing == len(syms):
+        raise GemsError("no company numbers are cached in this folder yet. Run `gems.py fetch` first: it takes one to "
+                        "two hours the first time, can be stopped and resumed, and `screen` works on whatever is in")
     liq = turnover()
     for m in rows:
         m["avg_turnover_cr"] = round(liq[m["symbol"]], 2) if m["symbol"] in liq else None
@@ -275,6 +278,8 @@ def cmd_screen(a):
         print(json.dumps(doc, indent=2))
         return 0 if rows else 1
     print("Screened %d companies; %d not fetched yet. %d passed." % (len(syms) - missing, missing, len(rows)))
+    if missing:
+        print("PARTIAL: %d companies have no cached numbers. Run `gems.py fetch` to finish; this list covers only the rest." % missing)
     print("Dropped: " + ", ".join("%d %s" % (v, k) for k, v in sorted(why.items(), key=lambda kv: -kv[1])) + ".")
     print("%-12s %8s %8s %7s %6s %6s %5s %8s %8s %7s %7s" % (
         "symbol", "mcap cr", "sales cr", "D/E", "ROE %", "P/E", "P/B", "netcash", "land cr", "land %", "cr/day"))
